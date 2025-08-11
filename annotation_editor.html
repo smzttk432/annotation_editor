@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<title>注釈ドキュメントメーカー（スタンドアロン）</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root{
+    --border:#d0d7de; --muted:#f6f8fa; --hi:#ffe4b5; --hi-strong:#ffcc80; --disabled:#eee;
+  }
+  body{font-family:ui-sans-serif,system-ui,Segoe UI,Helvetica,Arial; margin:0; color:#111;}
+  header{display:flex; gap:12px; align-items:center; padding:10px 14px; border-bottom:1px solid var(--border); background:#fff; position:sticky; top:0; z-index:10;}
+  header h1{font-size:16px; margin:0; font-weight:600;}
+  header .row{display:flex; gap:8px; align-items:center; flex-wrap:wrap;}
+  button,select,input[type="file"],input[type="text"]{
+    font:inherit; padding:6px 10px; border:1px solid var(--border); border-radius:8px; background:#fff; cursor:pointer;
+  }
+  button.primary{background:#111;color:#fff;border-color:#111;}
+  button.ghost{background:var(--muted)}
+  button.small{padding:4px 8px; font-size:12px;}
+  #layout{display:flex; min-height: calc(100vh - 56px);}
+  #left{flex:1; border-right:1px solid var(--border); display:flex; flex-direction:column;}
+  #right{flex:1; display:flex; flex-direction:column;}
+  /* Canvas area */
+  #canvasWrap{position:relative; flex:1; overflow:hidden; background:#fafafa;}
+  #canvasInner{position:absolute; left:0; top:0; transform-origin:0 0;}
+  #main-img{display:block; max-width:none; user-select:none; -webkit-user-drag:none;}
+  .annotation{
+    position:absolute; width:26px; height:26px; line-height:26px; text-align:center; font-weight:700;
+    background:#ff0; border:1px solid #aaa; border-radius:50%; cursor:move; user-select:none;
+    box-shadow:0 1px 3px rgba(0,0,0,.15);
+  }
+  .annotation.selected{background:var(--hi-strong);}
+  .anno-del{position:absolute; right:-6px; top:-6px; width:16px; height:16px; border-radius:50%;
+    background:#e11; color:#fff; font-size:11px; line-height:16px; text-align:center; display:none;}
+  .annotation:hover .anno-del{display:block;}
+  .tooltip{position:absolute; background:#111;color:#fff; padding:6px 8px; border-radius:8px; font-size:12px; white-space:nowrap; transform:translateY(-110%); pointer-events:none;}
+  /* Feature list */
+  #feature{padding:12px; overflow:auto; flex:1;}
+  #feature h2{margin:0 0 8px 0; font-size:14px;}
+  #features{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:6px;}
+  #features li{position:relative; padding:8px 10px; border:1px solid var(--border); border-radius:10px; background:#fff;}
+  #features li[contenteditable]:focus{outline:2px solid #69f; background:#f0f8ff;}
+  #features li.highlight{background:var(--hi); border-color:#f0b55c;}
+  #features li.disabled{background:var(--disabled); color:#777; text-decoration:line-through;}
+  .li-tools{position:absolute; right:6px; top:6px; display:flex; gap:4px;}
+  .li-tools button{font-size:11px; padding:2px 6px;}
+  /* Table */
+  #tableWrap{border-top:1px solid var(--border); padding:12px; background:#fff;}
+  table{width:100%; border-collapse:collapse; table-layout:fixed; font-size:14px;}
+  th,td{border:1px solid var(--border); padding:6px 8px;}
+  th{background:var(--muted); text-align:left;}
+  tr.disabled{background:var(--disabled); color:#777; text-decoration:line-through;}
+  td[contenteditable]{background:#fff;}
+  td a{color:#06c; text-decoration:underline;}
+  /* Footer controls */
+  footer{display:flex; justify-content:center; gap:10px; padding:12px; border-top:1px solid var(--border); background:#fff; position:sticky; bottom:0;}
+  /* Settings panel */
+  #settings{display:none; gap:8px; padding:8px; background:#fff; border:1px solid var(--border); border-radius:10px;}
+  #settings input{width:9rem;}
+  /* Zoom bar */
+  #zoomBar{position:absolute; right:10px; bottom:10px; background:#fff; border:1px solid var(--border); border-radius:10px; padding:6px 10px; display:flex; gap:6px; align-items:center;}
+</style>
+</head>
+<body>
+<header>
+  <h1>注釈ドキュメントメーカー</h1>
+  <div class="row">
+    <label class="ghost">画像選択 <input type="file" id="imgInput" accept="image/*" style="display:none;"></label>
+    <button class="ghost" id="btnAddFree">自由記述を追加</button>
+    <select id="templateSel">
+      <option value="">テンプレ選択…</option>
+      <option value="bug">バグ報告</option>
+      <option value="guide">操作ガイド</option>
+      <option value="lp">LPレビュー</option>
+    </select>
+    <button id="applyTmpl" class="ghost">テンプレ挿入</button>
+    <button id="btnSettings" class="ghost">⚙ ラベル設定</button>
+    <div id="settings" class="row">
+      <span>表見出し:</span>
+      <input id="lblNo"   value="No">
+      <input id="lblName" value="名称">
+      <input id="lblFunc" value="機能">
+      <input id="lblNote" value="備考">
+      <input id="lblLink" value="リンク">
+      <button class="small" id="applyLabels">適用</button>
+    </div>
+  </div>
+  <div class="row" style="margin-left:auto;">
+    <input type="file" id="loadHTML" accept=".html" />
+    <button id="saveBtn" class="primary">保存</button>
+  </div>
+</header>
+
+<div id="layout">
+  <section id="left">
+    <div id="canvasWrap">
+      <div id="canvasInner">
+        <img id="main-img" alt="">
+        <!-- annotations will render here -->
+      </div>
+      <div id="zoomBar">
+        <span>ズーム</span>
+        <input type="range" id="zoomRange" min="50" max="200" value="100">
+      </div>
+    </div>
+  </section>
+  <section id="right">
+    <div id="feature">
+      <h2>機能説明</h2>
+      <ul id="features"></ul>
+    </div>
+    <div id="tableWrap">
+      <table>
+        <thead>
+          <tr>
+            <th id="thNo">No</th>
+            <th id="thName">名称</th>
+            <th id="thFunc">機能</th>
+            <th id="thNote">備考</th>
+            <th id="thLink">リンク</th>
+          </tr>
+        </thead>
+        <tbody id="itemBody"></tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<footer>
+  <span>ヒント: 画像上をクリックで番号追加。番号はドラッグ移動可。項目行や機能文は編集できます。スペース＋ドラッグでパン。</span>
+</footer>
+
+<!-- 保存データはここに埋め込まれます（保存後のファイルを開いた時もここから復元） -->
+<script type="application/json" id="embedded-data"></script>
+
+<script>
+/* =======================
+   状態
+======================= */
+const imgInput     = document.getElementById('imgInput');
+const img          = document.getElementById('main-img');
+const canvasWrap   = document.getElementById('canvasWrap');
+const canvasInner  = document.getElementById('canvasInner');
+const featuresUl   = document.getElementById('features');
+const tbody        = document.getElementById('itemBody');
+const zoomRange    = document.getElementById('zoomRange');
+
+let state = {
+  image: "",                // DataURL
+  annotations: [],          // {id, no, relX, relY, active:true}
+  items: [],                // {no, name, func, note, link, active:true}
+  features: [],             // {id, text, nums:"1,2"|"", disabled:false}
+  labels: { no:"No", name:"名称", func:"機能", note:"備考", link:"リンク" },
+  nextNo: 1
+};
+
+let dragState = { dragging:false, targetId:null, offsetX:0, offsetY:0 };
+let panState  = { panning:false, startX:0, startY:0, baseX:0, baseY:0 };
+let scale = 1;
+let clearTimer = null;
+
+/* =======================
+   初期化 / 復元
+======================= */
+document.addEventListener('DOMContentLoaded', () => {
+  // embedded-data があれば（保存ファイルを直接開いた時）復元
+  const emb = document.getElementById('embedded-data');
+  if (emb && emb.textContent.trim()) {
+    try {
+      const data = JSON.parse(emb.textContent);
+      loadState(data);
+    } catch(e) {
+      console.warn('embedded-data parse error', e);
+    }
+  }
+});
+
+function loadState(data){
+  state = Object.assign(state, data);
+  // ラベル
+  document.getElementById('thNo').textContent   = state.labels.no   || 'No';
+  document.getElementById('thName').textContent = state.labels.name || '名称';
+  document.getElementById('thFunc').textContent = state.labels.func || '機能';
+  document.getElementById('thNote').textContent = state.labels.note || '備考';
+  document.getElementById('thLink').textContent = state.labels.link || 'リンク';
+  document.getElementById('lblNo').value   = state.labels.no;
+  document.getElementById('lblName').value = state.labels.name;
+  document.getElementById('lblFunc').value = state.labels.func;
+  document.getElementById('lblNote').value = state.labels.note;
+  document.getElementById('lblLink').value = state.labels.link;
+
+  if (state.image) {
+    img.onload = () => { renderAll(); };
+    img.src = state.image;
+  } else {
+    renderAll();
+  }
+}
+
+/* =======================
+   画像入れ替え / 追加
+======================= */
+imgInput.addEventListener('change', e=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    state.image = ev.target.result;
+    img.onload = ()=>{ renderAll(); };
+    img.src = state.image;
+  };
+  reader.readAsDataURL(file);
+});
+
+/* =======================
+   レンダリング
+======================= */
+function renderAll(){
+  renderImage();
+  renderAnnotations();
+  renderFeatures();
+  renderTable();
+}
+
+function renderImage(){
+  // 画像スケーリングは zoomRange に任せる（初期は1）
+  applyZoom();
+}
+
+function toCircled(n){ // 1→①
+  const base = 9311; return String.fromCharCode(base + Number(n));
+}
+
+function renderAnnotations(){
+  // 既存DOM削除
+  canvasInner.querySelectorAll('.annotation, .tooltip').forEach(el=>el.remove());
+  if(!state.image) return;
+  // 各注釈を生成
+  state.annotations.forEach(a=>{
+    const el = document.createElement('div');
+    el.className = 'annotation';
+    el.dataset.id = a.id;
+    el.dataset.no = a.no;
+    el.textContent = toCircled(a.no);
+    const {x,y} = relToPx(a.relX, a.relY);
+    el.style.left = (x-13) + 'px'; // 半径補正
+    el.style.top  = (y-13) + 'px';
+
+    // 削除ボタン
+    const del = document.createElement('div');
+    del.className = 'anno-del';
+    del.textContent = '×';
+    del.addEventListener('click', ev=>{
+      ev.stopPropagation();
+      const no = a.no;
+      // items disable
+      state.items.forEach(it=>{ if(it.no===no) it.active=false; });
+      // features disable
+      state.features.forEach(ft=>{
+        const arr = (ft.nums||'').split(',').filter(Boolean);
+        if(arr.includes(String(no))) ft.disabled = true;
+      });
+      // 注釈を削除
+      state.annotations = state.annotations.filter(x=>x.id!==a.id);
+      renderAll();
+    });
+    el.appendChild(del);
+
+    // ドラッグ開始
+    el.addEventListener('mousedown', ev=>{
+      if (ev.button===0 && !ev.ctrlKey && !ev.metaKey) { // 左ドラッグ
+        dragState.dragging = true;
+        dragState.targetId = a.id;
+        dragState.offsetX = ev.offsetX;
+        dragState.offsetY = ev.offsetY;
+      }
+    });
+
+    // ホバーで機能側をハイライト（2秒で消える）
+    el.addEventListener('mouseenter', ()=>{
+      highlightFeaturesByNo(a.no, true);
+      autoClearHighlight();
+    });
+    el.addEventListener('mouseleave', ()=>{ /* hover離脱では消さない。自動解除に任せる */ });
+
+    canvasInner.appendChild(el);
+  });
+}
+
+function renderFeatures(){
+  featuresUl.innerHTML = '';
+  state.features.forEach(ft=>{
+    const li = document.createElement('li');
+    li.contentEditable = true;
+    li.textContent = ft.text || '';
+    li.dataset.id = ft.id;
+    li.dataset.nums = ft.nums || '';
+    if (ft.disabled) li.classList.add('disabled');
+
+    // 右上ツール
+    const tools = document.createElement('div');
+    tools.className = 'li-tools';
+    const btnLink = document.createElement('button');
+    btnLink.className = 'small';
+    btnLink.textContent = '番号紐付';
+    btnLink.title = 'この文章に関連づける番号（カンマ区切り）を設定';
+    btnLink.onclick = ()=>{
+      const cur = li.dataset.nums || '';
+      const v = prompt('関連する番号(カンマ区切り)。例: 1,2', cur);
+      if (v!==null) li.dataset.nums = v.replace(/\s+/g,'');
+    };
+    const btnDel = document.createElement('button');
+    btnDel.className = 'small';
+    btnDel.textContent = '削除';
+    btnDel.onclick = ()=>{ li.remove(); state.features = state.features.filter(x=>x.id!==ft.id); };
+    tools.appendChild(btnLink); tools.appendChild(btnDel);
+    li.appendChild(tools);
+
+    // ハイライト相互連動
+    li.addEventListener('mouseenter', ()=>{
+      const arr=(li.dataset.nums||'').split(',').filter(Boolean);
+      arr.forEach(n=> highlightAnnoByNo(n,true));
+      li.classList.add('highlight');
+      autoClearHighlight();
+    });
+    li.addEventListener('mouseleave', ()=>{
+      // 自動解除に任せる
+    });
+
+    featuresUl.appendChild(li);
+  });
+}
+
+function renderTable(){
+  tbody.innerHTML = '';
+  state.items.forEach(it=>{
+    const tr = document.createElement('tr');
+    if(!it.active) tr.classList.add('disabled');
+    tr.dataset.no = it.no;
+    tr.innerHTML = `
+      <td>${it.no}</td>
+      <td contenteditable>${it.name||''}</td>
+      <td contenteditable>${it.func||''}</td>
+      <td contenteditable>${it.note||''}</td>
+      <td contenteditable>${it.link||''}</td>
+    `;
+    // 行クリックで相互強調
+    tr.addEventListener('mouseenter', ()=>{
+      highlightAnnoByNo(it.no, true);
+      highlightFeaturesByNo(it.no, true);
+      autoClearHighlight();
+    });
+    tbody.appendChild(tr);
+  });
+  // ラベル適用
+  document.getElementById('thNo').textContent   = state.labels.no;
+  document.getElementById('thName').textContent = state.labels.name;
+  document.getElementById('thFunc').textContent = state.labels.func;
+  document.getElementById('thNote').textContent = state.labels.note;
+  document.getElementById('thLink').textContent = state.labels.link;
+}
+
+/* =======================
+   座標・ドラッグ・ズーム/パン
+======================= */
+function relToPx(relX, relY){
+  const w = img.clientWidth, h = img.clientHeight;
+  return { x: relX * w, y: relY * h };
+}
+function pxToRel(px, py){
+  const w = img.clientWidth, h = img.clientHeight;
+  return { relX: Math.min(1, Math.max(0, px / w)), relY: Math.min(1, Math.max(0, py / h)) };
+}
+
+document.addEventListener('mousemove', ev=>{
+  if (dragState.dragging && dragState.targetId){
+    const rect = canvasInner.getBoundingClientRect();
+    const x = ev.clientX - rect.left - dragState.offsetX;
+    const y = ev.clientY - rect.top  - dragState.offsetY;
+    const anno = state.annotations.find(a=>a.id===dragState.targetId);
+    if(!anno) return;
+    // ピクセル位置→相対に更新
+    const { relX, relY } = pxToRel(x+13, y+13);
+    anno.relX = relX; anno.relY = relY;
+    // DOMも動かす
+    const el = canvasInner.querySelector(`.annotation[data-id="${anno.id}"]`);
+    if (el){ el.style.left = (x)+'px'; el.style.top=(y)+'px'; }
+  }
+});
+document.addEventListener('mouseup', ()=>{ dragState.dragging=false; dragState.targetId=null; });
+
+let spaceDown=false;
+document.addEventListener('keydown', e=>{ if(e.code==='Space'){spaceDown=true; e.preventDefault();} });
+document.addEventListener('keyup',   e=>{ if(e.code==='Space'){spaceDown=false;} });
+
+canvasWrap.addEventListener('mousedown', e=>{
+  if (spaceDown){
+    panState.panning = true; panState.startX=e.clientX; panState.startY=e.clientY;
+    const m = getComputedStyle(canvasInner).transform.match(/matrix\(([^)]+)\)/);
+    const tx = m ? parseFloat(m[1].split(',')[4]) : 0;
+    const ty = m ? parseFloat(m[1].split(',')[5]) : 0;
+    panState.baseX = tx; panState.baseY = ty;
+    e.preventDefault();
+  }
+});
+document.addEventListener('mousemove', e=>{
+  if (!panState.panning) return;
+  const dx=e.clientX-panState.startX, dy=e.clientY-panState.startY;
+  canvasInner.style.transform = `translate(${panState.baseX+dx}px, ${panState.baseY+dy}px) scale(${scale})`;
+});
+document.addEventListener('mouseup', ()=> panState.panning=false);
+
+zoomRange.addEventListener('input', ()=>{
+  scale = Number(zoomRange.value)/100;
+  applyZoom();
+});
+function applyZoom(){
+  canvasInner.style.transform = `translate(0px,0px) scale(${scale})`;
+}
+
+/* =======================
+   追加/削除/相互ハイライト
+======================= */
+canvasInner.addEventListener('click', e=>{
+  if (!state.image) return;
+  // 画像上クリックで追加（注釈クリックのバブリングは止める）
+  if (e.target.id==='main-img' || e.target===canvasInner){
+    const rect = canvasInner.getBoundingClientRect();
+    const px = e.clientX - rect.left;
+    const py = e.clientY - rect.top;
+    const { relX, relY } = pxToRel(px, py);
+    addAnnotation(relX, relY);
+  }
+});
+
+function addAnnotation(relX, relY){
+  const no = state.nextNo++;
+  const id = 'a'+Date.now()+Math.random().toString(36).slice(2,6);
+  state.annotations.push({ id, no, relX, relY, active:true });
+  state.items.push({ no, name:'', func:'', note:'', link:'', active:true });
+  // 機能欄にもひな形を1行追加（紐付済）
+  state.features.push({ id:'f'+Date.now()+Math.random().toString(36).slice(2,6),
+    text:`${toCircled(no)} 機能説明をここに記載`, nums:String(no), disabled:false });
+  renderAll();
+}
+
+function highlightFeaturesByNo(no, on){
+  featuresUl.querySelectorAll('li').forEach(li=>{
+    const arr = (li.dataset.nums||'').split(',').filter(Boolean);
+    if(arr.includes(String(no))) li.classList.toggle('highlight', on);
+  });
+}
+function highlightAnnoByNo(no, on){
+  canvasInner.querySelectorAll('.annotation').forEach(el=>{
+    if (el.dataset.no===String(no)) el.classList.toggle('selected', on);
+  });
+}
+function autoClearHighlight(){
+  if (clearTimer) clearTimeout(clearTimer);
+  clearTimer = setTimeout(()=>{
+    document.querySelectorAll('.highlight').forEach(el=>el.classList.remove('highlight'));
+    document.querySelectorAll('.selected').forEach(el=>el.classList.remove('selected'));
+  }, 2000);
+}
+
+/* =======================
+   テンプレ / ラベル
+======================= */
+document.getElementById('btnSettings').onclick = ()=>{
+  const p = document.getElementById('settings');
+  p.style.display = p.style.display==='none' || !p.style.display ? 'flex' : 'none';
+};
+document.getElementById('applyLabels').onclick = ()=>{
+  state.labels = {
+    no:   document.getElementById('lblNo').value || 'No',
+    name: document.getElementById('lblName').value || '名称',
+    func: document.getElementById('lblFunc').value || '機能',
+    note: document.getElementById('lblNote').value || '備考',
+    link: document.getElementById('lblLink').value || 'リンク'
+  };
+  renderTable();
+};
+
+document.getElementById('btnAddFree').onclick = ()=>{
+  state.features.push({ id:'f'+Date.now()+Math.random().toString(36).slice(2,6),
+    text:'自由記述の機能説明', nums:'', disabled:false });
+  renderFeatures();
+};
+
+document.getElementById('applyTmpl').onclick = ()=>{
+  const v = document.getElementById('templateSel').value;
+  if(!v) return;
+  if (!confirm('テンプレートを挿入します（既存内容は保持されます）')) return;
+  const add = (text, nums='') => state.features.push({ id:'f'+Math.random().toString(36).slice(2,6), text, nums, disabled:false });
+  if (v==='bug'){
+    add('この文書はバグ報告のための注釈です');
+    add('① 再現手順：…', '1');
+    add('② 期待結果：…', '2');
+    add('③ 実結果：…', '3');
+  } else if (v==='guide'){
+    add('この文書は操作ガイドです');
+    add('① ボタンを押すと…', '1');
+    add('② 入力欄に…', '2');
+    add('補足：ネットワーク要件 など', '');
+  } else if (v==='lp'){
+    add('LPレビュー：要素分解と改善メモ');
+    add('① ヒーローセクションの価値訴求', '1');
+    add('② CTAの位置と文言', '2');
+    add('③ ソーシャルプルーフの不足', '3');
+  }
+  renderFeatures();
+};
+
+/* =======================
+   保存 / 読み込み
+======================= */
+document.getElementById('saveBtn').addEventListener('click', saveHTML);
+document.getElementById('loadHTML').addEventListener('change', onLoadHTML);
+
+function syncTableToItems(){
+  [...tbody.querySelectorAll('tr')].forEach((tr, i)=>{
+    const tds = tr.children;
+    const it = state.items[i]; if(!it) return;
+    it.name = tds[1].textContent;
+    it.func = tds[2].textContent;
+    it.note = tds[3].textContent;
+    it.link = tds[4].textContent;
+  });
+}
+
+function saveHTML(){
+  // 一時クラスはクリアしてから保存（機能自体は残る）
+  document.querySelectorAll('.highlight,.selected').forEach(el=>el.classList.remove('highlight','selected'));
+  // 表→state 反映
+  syncTableToItems();
+
+  // 保存用データ（nextNoを保持して連番再利用しない）
+  const data = {
+    image: state.image,
+    annotations: state.annotations,
+    items: state.items,
+    features: state.features.map(li=>({id:li.id, text:li.text, nums:li.nums, disabled:li.disabled})),
+    labels: state.labels,
+    nextNo: state.nextNo
+  };
+
+  // DOMクローン
+  const clone = document.documentElement.cloneNode(true);
+  // 古い embedded-data を除去
+  const old = clone.querySelector('#embedded-data'); if (old) old.remove();
+  // 新しい embedded-data を追加（textContent なので安全・エスケープ不要）
+  const scriptEl = document.createElement('script');
+  scriptEl.type = 'application/json'; scriptEl.id='embedded-data';
+  scriptEl.textContent = JSON.stringify(data);
+  clone.querySelector('body').appendChild(scriptEl);
+
+  // 文字列化
+  const fullHtml = '<!DOCTYPE html>\n' + new XMLSerializer().serializeToString(clone);
+  const blob = new Blob([fullHtml], {type:'text/html'});
+  const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='annotation-doc.html'; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
+}
+
+function onLoadHTML(e){
+  const file = e.target.files[0]; if(!file) return;
+  const reader = new FileReader();
+  reader.onload = ev=>{
+    const doc = new DOMParser().parseFromString(ev.target.result, 'text/html');
+    const emb = doc.querySelector('#embedded-data');
+    if(!emb){ alert('データが見つかりません'); return; }
+    try{
+      const data = JSON.parse(emb.textContent);
+      loadState(data);
+    }catch(err){
+      alert('データの解析に失敗しました'); console.error(err);
+    }
+  };
+  reader.readAsText(file);
+}
+
+/* =======================
+   画像クリック扱い（imgの下の透明エリア対策）
+======================= */
+img.addEventListener('load', ()=>{
+  // 画像のサイズに合わせる（初回のみでもOK）
+  // 画像は自然サイズで表示（拡縮はtransform）
+});
+</script>
+</body>
+</html>
