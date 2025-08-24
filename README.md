@@ -13,7 +13,7 @@
 - ローカル完結、オフライン利用可
 
 ## 利用方法
-1. [エディタを開く](https://USERNAME.github.io/REPO/editor.html)
+1. [エディタを開く](https://USERNAME.github.io/REPO/annotation_editor.html)
 2. 「画像を選択」からスクリーンショットや画像を読み込む
 3. 画像上をクリックして番号を追加、右欄に説明を入力
 4. 必要に応じて表に詳細を記入
