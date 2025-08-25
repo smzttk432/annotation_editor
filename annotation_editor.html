@@ -31,6 +31,7 @@
     box-shadow:0 1px 3px rgba(0,0,0,.15);
   }
   .annotation.selected{background:var(--hi-strong);}
+  .annotation.inactive{opacity:.2; pointer-events:none;} /* 念のための見た目（通常は非表示） */
   .anno-del{position:absolute; right:-6px; top:-6px; width:16px; height:16px; border-radius:50%;
     background:#e11; color:#fff; font-size:11px; line-height:16px; text-align:center; display:none;}
   .annotation:hover .anno-del{display:block;}
@@ -53,6 +54,7 @@
   tr.disabled{background:var(--disabled); color:#777; text-decoration:line-through;}
   td[contenteditable]{background:#fff;}
   td a{color:#06c; text-decoration:underline;}
+  .restoreBtn{display:inline-block; margin-left:6px; font-size:12px; padding:2px 6px;}
   /* Footer controls */
   footer{display:flex; justify-content:center; gap:10px; padding:12px; border-top:1px solid var(--border); background:#fff; position:sticky; bottom:0;}
   /* Settings panel */
@@ -66,7 +68,7 @@
 <header>
   <h1>注釈ドキュメントメーカー</h1>
   <div class="row">
-    <label class="ghost">画像選択 <input type="file" id="imgInput" accept="image/*" style="display:none;"></label>
+    <label class="ghost">画像読み込み <input type="file" id="imgInput" accept="image/*" style="display:none;"></label>
     <button class="ghost" id="btnAddFree">自由記述を追加</button>
     <select id="templateSel">
       <option value="">テンプレ選択…</option>
@@ -88,7 +90,7 @@
   </div>
   <div class="row" style="margin-left:auto;">
     <input type="file" id="loadHTML" accept=".html" />
-    <button id="saveBtn" class="primary">保存</button>
+    <button id="saveBtn" class="primary">HTMLで保存</button>
   </div>
 </header>
 
@@ -101,7 +103,7 @@
       </div>
       <div id="zoomBar">
         <span>ズーム</span>
-        <input type="range" id="zoomRange" min="50" max="200" value="100">
+        <input type="range" id="zoomRange" min="25" max="300" value="100">
       </div>
     </div>
   </section>
@@ -128,7 +130,7 @@
 </div>
 
 <footer>
-  <span>ヒント: 画像上をクリックで番号追加。番号はドラッグ移動可。項目行や機能文は編集できます。スペース＋ドラッグでパン。</span>
+  <span>ヒント: 画像上をクリックで番号追加。番号はドラッグ移動可。項目行や機能文は編集できます。スペース＋ドラッグでパン。Ctrl+ホイールでズーム。</span>
 </footer>
 
 <!-- 保存データはここに埋め込まれます（保存後のファイルを開いた時もここから復元） -->
@@ -164,7 +166,6 @@ let clearTimer = null;
    初期化 / 復元
 ======================= */
 document.addEventListener('DOMContentLoaded', () => {
-  // embedded-data があれば（保存ファイルを直接開いた時）復元
   const emb = document.getElementById('embedded-data');
   if (emb && emb.textContent.trim()) {
     try {
@@ -191,7 +192,7 @@ function loadState(data){
   document.getElementById('lblLink').value = state.labels.link;
 
   if (state.image) {
-    img.onload = () => { renderAll(); };
+    img.onload = () => { fitImageAndRender(); };
     img.src = state.image;
   } else {
     renderAll();
@@ -207,7 +208,7 @@ imgInput.addEventListener('change', e=>{
   const reader = new FileReader();
   reader.onload = ev => {
     state.image = ev.target.result;
-    img.onload = ()=>{ renderAll(); };
+    img.onload = ()=>{ fitImageAndRender(); };
     img.src = state.image;
   };
   reader.readAsDataURL(file);
@@ -224,52 +225,39 @@ function renderAll(){
 }
 
 function renderImage(){
-  // 画像スケーリングは zoomRange に任せる（初期は1）
   applyZoom();
 }
 
-function toCircled(n){ // 1→①
-  const base = 9311; return String.fromCharCode(base + Number(n));
-}
+// 丸数字は21以降が不安定なので常に数値＋丸背景で統一
+function toCircled(n){ return String(n); }
 
 function renderAnnotations(){
-  // 既存DOM削除
   canvasInner.querySelectorAll('.annotation, .tooltip').forEach(el=>el.remove());
   if(!state.image) return;
-  // 各注釈を生成
   state.annotations.forEach(a=>{
+    if (!a.active) return; // 非表示（復活可能）
     const el = document.createElement('div');
     el.className = 'annotation';
     el.dataset.id = a.id;
     el.dataset.no = a.no;
     el.textContent = toCircled(a.no);
     const {x,y} = relToPx(a.relX, a.relY);
-    el.style.left = (x-13) + 'px'; // 半径補正
+    el.style.left = (x-13) + 'px';
     el.style.top  = (y-13) + 'px';
 
-    // 削除ボタン
+    // 削除（実際は非表示化）
     const del = document.createElement('div');
     del.className = 'anno-del';
     del.textContent = '×';
     del.addEventListener('click', ev=>{
       ev.stopPropagation();
-      const no = a.no;
-      // items disable
-      state.items.forEach(it=>{ if(it.no===no) it.active=false; });
-      // features disable
-      state.features.forEach(ft=>{
-        const arr = (ft.nums||'').split(',').filter(Boolean);
-        if(arr.includes(String(no))) ft.disabled = true;
-      });
-      // 注釈を削除
-      state.annotations = state.annotations.filter(x=>x.id!==a.id);
-      renderAll();
+      softDeleteByNo(a.no);
     });
     el.appendChild(del);
 
     // ドラッグ開始
     el.addEventListener('mousedown', ev=>{
-      if (ev.button===0 && !ev.ctrlKey && !ev.metaKey) { // 左ドラッグ
+      if (ev.button===0 && !ev.ctrlKey && !ev.metaKey) {
         dragState.dragging = true;
         dragState.targetId = a.id;
         dragState.offsetX = ev.offsetX;
@@ -277,12 +265,11 @@ function renderAnnotations(){
       }
     });
 
-    // ホバーで機能側をハイライト（2秒で消える）
+    // ホバーで機能側をハイライト
     el.addEventListener('mouseenter', ()=>{
       highlightFeaturesByNo(a.no, true);
       autoClearHighlight();
     });
-    el.addEventListener('mouseleave', ()=>{ /* hover離脱では消さない。自動解除に任せる */ });
 
     canvasInner.appendChild(el);
   });
@@ -312,8 +299,11 @@ function renderFeatures(){
     };
     const btnDel = document.createElement('button');
     btnDel.className = 'small';
-    btnDel.textContent = '削除';
-    btnDel.onclick = ()=>{ li.remove(); state.features = state.features.filter(x=>x.id!==ft.id); };
+    btnDel.textContent = ft.disabled ? '復活' : '無効化';
+    btnDel.onclick = ()=>{
+      ft.disabled = !ft.disabled;
+      renderFeatures();
+    };
     tools.appendChild(btnLink); tools.appendChild(btnDel);
     li.appendChild(tools);
 
@@ -323,9 +313,6 @@ function renderFeatures(){
       arr.forEach(n=> highlightAnnoByNo(n,true));
       li.classList.add('highlight');
       autoClearHighlight();
-    });
-    li.addEventListener('mouseleave', ()=>{
-      // 自動解除に任せる
     });
 
     featuresUl.appendChild(li);
@@ -345,7 +332,21 @@ function renderTable(){
       <td contenteditable>${it.note||''}</td>
       <td contenteditable>${it.link||''}</td>
     `;
-    // 行クリックで相互強調
+
+    // 復活ボタン（非アクティブ時のみ表示）
+    if (!it.active) {
+      const lastTd = tr.lastElementChild;
+      const btn = document.createElement('button');
+      btn.className = 'restoreBtn';
+      btn.textContent = '復活';
+      btn.addEventListener('click', (e)=>{
+        e.stopPropagation();
+        restoreByNo(it.no);
+      });
+      lastTd.appendChild(btn);
+    }
+
+    // 行ホバーで相互強調
     tr.addEventListener('mouseenter', ()=>{
       highlightAnnoByNo(it.no, true);
       highlightFeaturesByNo(it.no, true);
@@ -373,19 +374,25 @@ function pxToRel(px, py){
   return { relX: Math.min(1, Math.max(0, px / w)), relY: Math.min(1, Math.max(0, py / h)) };
 }
 
+// transform 補正：クライアント座標→transform前のcanvasInner座標へ
+function getScale(){ return scale; }
+function clientToCanvasPx(clientX, clientY){
+  const rect = canvasInner.getBoundingClientRect();
+  const s = getScale();
+  return { x: (clientX - rect.left) / s, y: (clientY - rect.top) / s };
+}
+
 document.addEventListener('mousemove', ev=>{
   if (dragState.dragging && dragState.targetId){
-    const rect = canvasInner.getBoundingClientRect();
-    const x = ev.clientX - rect.left - dragState.offsetX;
-    const y = ev.clientY - rect.top  - dragState.offsetY;
+    const {x, y} = clientToCanvasPx(ev.clientX, ev.clientY);
     const anno = state.annotations.find(a=>a.id===dragState.targetId);
     if(!anno) return;
-    // ピクセル位置→相対に更新
-    const { relX, relY } = pxToRel(x+13, y+13);
+    const px = x - dragState.offsetX;
+    const py = y - dragState.offsetY;
+    const { relX, relY } = pxToRel(px+13, py+13);
     anno.relX = relX; anno.relY = relY;
-    // DOMも動かす
     const el = canvasInner.querySelector(`.annotation[data-id="${anno.id}"]`);
-    if (el){ el.style.left = (x)+'px'; el.style.top=(y)+'px'; }
+    if (el){ el.style.left = (px)+'px'; el.style.top=(py)+'px'; }
   }
 });
 document.addEventListener('mouseup', ()=>{ dragState.dragging=false; dragState.targetId=null; });
@@ -419,17 +426,36 @@ function applyZoom(){
   canvasInner.style.transform = `translate(0px,0px) scale(${scale})`;
 }
 
+// Ctrl+ホイールでズーム
+canvasWrap.addEventListener('wheel', (e)=>{
+  if (!state.image) return;
+  if (!e.ctrlKey) return;
+  e.preventDefault();
+  const delta = e.deltaY > 0 ? -0.05 : 0.05;
+  scale = Math.max(0.1, Math.min(3, scale + delta));
+  zoomRange.value = Math.round(scale*100);
+  applyZoom();
+}, {passive:false});
+
+// 初期フィット
+function fitImageAndRender(){
+  const wrap = canvasWrap.getBoundingClientRect();
+  const s = Math.min(wrap.width / img.naturalWidth, wrap.height / img.naturalHeight);
+  scale = Math.max(0.1, Math.min(3, s));
+  zoomRange.value = Math.round(scale*100);
+  applyZoom();
+  renderAll();
+}
+
 /* =======================
-   追加/削除/相互ハイライト
+   追加/削除(非表示)/復活/相互ハイライト
 ======================= */
 canvasInner.addEventListener('click', e=>{
   if (!state.image) return;
-  // 画像上クリックで追加（注釈クリックのバブリングは止める）
+  if (dragState.dragging) return; // ドラッグ直後の誤追加防止
   if (e.target.id==='main-img' || e.target===canvasInner){
-    const rect = canvasInner.getBoundingClientRect();
-    const px = e.clientX - rect.left;
-    const py = e.clientY - rect.top;
-    const { relX, relY } = pxToRel(px, py);
+    const {x, y} = clientToCanvasPx(e.clientX, e.clientY);
+    const { relX, relY } = pxToRel(x, y);
     addAnnotation(relX, relY);
   }
 });
@@ -439,9 +465,31 @@ function addAnnotation(relX, relY){
   const id = 'a'+Date.now()+Math.random().toString(36).slice(2,6);
   state.annotations.push({ id, no, relX, relY, active:true });
   state.items.push({ no, name:'', func:'', note:'', link:'', active:true });
-  // 機能欄にもひな形を1行追加（紐付済）
   state.features.push({ id:'f'+Date.now()+Math.random().toString(36).slice(2,6),
     text:`${toCircled(no)} 機能説明をここに記載`, nums:String(no), disabled:false });
+  renderAll();
+}
+
+// “削除”＝非表示化（復活可能）
+function softDeleteByNo(no){
+  const ann = state.annotations.find(a=>a.no===no);
+  if (ann) ann.active = false;
+  state.items.forEach(it=>{ if(it.no===no) it.active=false; });
+  state.features.forEach(ft=>{
+    const arr = (ft.nums||'').split(',').filter(Boolean);
+    if(arr.includes(String(no))) ft.disabled = true;
+  });
+  renderAll();
+}
+
+function restoreByNo(no){
+  const ann = state.annotations.find(a=>a.no===no);
+  if (ann) ann.active = true;
+  state.items.forEach(it=>{ if(it.no===no) it.active=true; });
+  state.features.forEach(ft=>{
+    const arr = (ft.nums||'').split(',').filter(Boolean);
+    if(arr.includes(String(no))) ft.disabled = false;
+  });
   renderAll();
 }
 
@@ -519,9 +567,11 @@ document.getElementById('saveBtn').addEventListener('click', saveHTML);
 document.getElementById('loadHTML').addEventListener('change', onLoadHTML);
 
 function syncTableToItems(){
-  [...tbody.querySelectorAll('tr')].forEach((tr, i)=>{
+  [...tbody.querySelectorAll('tr')].forEach(tr=>{
+    const no = Number(tr.dataset.no);
+    const it = state.items.find(x=>x.no===no);
+    if(!it) return;
     const tds = tr.children;
-    const it = state.items[i]; if(!it) return;
     it.name = tds[1].textContent;
     it.func = tds[2].textContent;
     it.note = tds[3].textContent;
@@ -530,12 +580,9 @@ function syncTableToItems(){
 }
 
 function saveHTML(){
-  // 一時クラスはクリアしてから保存（機能自体は残る）
   document.querySelectorAll('.highlight,.selected').forEach(el=>el.classList.remove('highlight','selected'));
-  // 表→state 反映
   syncTableToItems();
 
-  // 保存用データ（nextNoを保持して連番再利用しない）
   const data = {
     image: state.image,
     annotations: state.annotations,
@@ -545,17 +592,13 @@ function saveHTML(){
     nextNo: state.nextNo
   };
 
-  // DOMクローン
   const clone = document.documentElement.cloneNode(true);
-  // 古い embedded-data を除去
   const old = clone.querySelector('#embedded-data'); if (old) old.remove();
-  // 新しい embedded-data を追加（textContent なので安全・エスケープ不要）
   const scriptEl = document.createElement('script');
   scriptEl.type = 'application/json'; scriptEl.id='embedded-data';
   scriptEl.textContent = JSON.stringify(data);
   clone.querySelector('body').appendChild(scriptEl);
 
-  // 文字列化
   const fullHtml = '<!DOCTYPE html>\n' + new XMLSerializer().serializeToString(clone);
   const blob = new Blob([fullHtml], {type:'text/html'});
   const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='annotation-doc.html'; a.click();
@@ -580,11 +623,10 @@ function onLoadHTML(e){
 }
 
 /* =======================
-   画像クリック扱い（imgの下の透明エリア対策）
+   画像ロード時の処理
 ======================= */
 img.addEventListener('load', ()=>{
-  // 画像のサイズに合わせる（初回のみでもOK）
-  // 画像は自然サイズで表示（拡縮はtransform）
+  // fitImageAndRender で行うためここは空のまま
 });
 </script>
 </body>
