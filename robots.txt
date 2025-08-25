@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://smzttk432.github.io/annotation_editor/sitemap.xml
