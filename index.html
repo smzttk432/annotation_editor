@@ -2,39 +2,141 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>汎用注釈ドキュメントメーカー</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title>汎用注釈ドキュメントメーカー｜画像に番号と説明を付けて1ファイルで共有</title>
+<meta name="description" content="画像に番号と説明を付け、単一HTMLで配布・再編集できるスタンドアロンWebツール。ブラウザだけで動作、オフライン可、MIT License。">
+
+<!-- Canonical -->
+<link rel="canonical" href="https://smzttk432.github.io/annotation_editor/">
+
+<!-- OGP / Twitter -->
+<meta property="og:type" content="website">
+<meta property="og:locale" content="ja_JP">
+<meta property="og:site_name" content="汎用注釈ドキュメントメーカー">
+<meta property="og:title" content="画像に番号と説明を付けて、1ファイルで共有">
+<meta property="og:description" content="ブラウザだけで動作・オフライン可・MIT。単一HTMLで配布＆再編集。">
+<meta property="og:url" content="https://smzttk432.github.io/annotation_editor/">
+<!-- 1200x630 の画像を /annotation_editor/ogp.png に置いてください -->
+<meta property="og:image" content="https://smzttk432.github.io/annotation_editor/ogp.png">
+<meta name="twitter:card" content="summary_large_image">
+
+<!-- Favicon（任意。/annotation_editor/favicon.png を用意できれば有効化） -->
+<!-- <link rel="icon" href="favicon.png"> -->
+
+<!-- パフォーマンス小技（任意。デモGIFがある場合） -->
+<!-- <link rel="preload" as="image" href="demo.gif">
+<link rel="prefetch" href="annotation_editor.html"> --> 
+
+<!-- Plausible（軽量・Cookie不要。ドメインはPagesのホスト名でOK） -->
+<script defer data-domain="smzttk432.github.io" src="https://plausible.io/js/script.js"></script>
+
+<!-- 代替: GA4 を使う場合は上のPlausibleを外し、以下を有効化
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-XXXX"></script>
+<script>
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+gtag('config', 'G-XXXX', { anonymize_ip: true });
+</script>
+-->
+
 <style>
-body { font-family: sans-serif; max-width: 800px; margin: auto; padding: 20px; }
-h1 { text-align: center; }
+:root {
+  --bg:#ffffff; --fg:#111; --muted:#666; --brand:#007acc; --brand-d:#005fa3; --border:#eee;
+}
+*{box-sizing:border-box}
+body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", sans-serif;
+       color:var(--fg); background:var(--bg); max-width: 880px; margin: auto; padding: 24px; line-height:1.7; }
+header { text-align: center; margin: 8px 0 20px; }
+.hero { text-align:center; padding: 20px 16px; border:1px solid var(--border); border-radius:12px; background:#fafafa; }
+h1 { margin: 0 0 10px; font-size: clamp(22px, 3.2vw, 32px); }
+.lead { color:var(--muted); margin: 0 auto 16px; }
+.ctas { display:flex; gap:12px; justify-content:center; flex-wrap:wrap; margin-bottom: 8px; }
+a.button { display: inline-block; padding: 12px 18px; background: var(--brand); color: white; text-decoration: none; border-radius: 8px; font-weight:600; }
+a.button:hover { background: var(--brand-d); }
+a.ghost { background: #fff; color: var(--brand); border: 1px solid var(--brand); }
+a.ghost:hover { background: #f0f8ff; }
+section { margin-top: 32px; }
 .features { list-style: disc; margin-left: 20px; }
-a.button { display: inline-block; padding: 10px 20px; background: #007acc; color: white; text-decoration: none; border-radius: 5px; }
-a.button:hover { background: #005fa3; }
-img.demo { width: 100%; max-width: 700px; margin: 20px 0; }
+.card { border:1px solid var(--border); border-radius: 12px; padding: 16px; background:#fff; }
+small, .note { color:var(--muted); }
+footer { margin-top: 40px; color:var(--muted); font-size: 13px; text-align:center; }
 </style>
 </head>
+
 <body>
-<h1>汎用注釈ドキュメントメーカー</h1>
-<p>画像に番号と説明をつけて、1ファイルで共有できるドキュメントを作成できます。</p>
-<h2>主な特徴</h2>
-<ul class="features">
-<li>ブラウザだけで動作、インストール不要</li>
-<li>番号クリックで説明・表をハイライト</li>
-<li>HTML1つで配布・閲覧・再編集が可能</li>
-<li>自由記述、テンプレート機能付き</li>
-<li>ローカル完結、オフライン利用可</li>
-</ul>
-<p>
-<a href="annotation_editor.html" class="button">エディタを開く</a>
-</p>
-<h2>使い方</h2>
-<ol>
-<li>「エディタを開く」から編集画面へ</li>
-<li>画像を読み込み、クリックで番号を追加</li>
-<li>右欄や表に説明を入力</li>
-<li>保存してHTMLファイルとして配布</li>
-</ol>
-<h2>動作環境</h2>
-<p>Chrome / Edge / Firefox 最新版（PC推奨）</p>
-<p><small>MIT License</small></p>
+<header>
+  <div class="hero">
+    <h1>汎用注釈ドキュメントメーカー</h1>
+    <p class="lead">画像に番号と説明を付けて、<strong>単一HTML</strong>で配布・再編集。<br>ブラウザだけで動作／オフライン可／MIT</p>
+    <div class="ctas">
+      <a href="annotation_editor.html" class="button" data-event="cta_click" data-loc="hero">エディタを開く</a>
+      <!-- GitHub リポジトリへの導線（任意でURLを入れてください） -->
+      <a href="https://github.com/smzttk432/annotation_editor" class="button ghost" target="_blank" rel="noopener" data-event="outbound_github">GitHubで見る</a>
+    </div>
+    <p class="note">情報は外部へ送信しません。作成したドキュメントは1つのHTMLに保存され、後から再編集できます。</p>
+  </div>
+</header>
+
+<section class="card">
+  <h2>主な特徴</h2>
+  <ul class="features">
+    <li>ブラウザだけで動作、インストール不要</li>
+    <li>番号クリックで説明・表をハイライト</li>
+    <li>HTMLひとつで配布・閲覧・<strong>再編集</strong>が可能</li>
+    <li>自由記述、テンプレート機能付き</li>
+    <li>ローカル完結、オフライン利用可</li>
+  </ul>
+</section>
+
+<section class="card">
+  <h2>使い方</h2>
+  <ol>
+    <li>「エディタを開く」から編集画面へ</li>
+    <li>画像を読み込み、クリックで番号を追加</li>
+    <li>右欄や表に説明を入力</li>
+    <li>保存してHTMLファイルとして配布（後から再編集できます）</li>
+  </ol>
+  <p class="note">動作環境：Chrome / Edge / Firefox 最新版（PC推奨）</p>
+</section>
+
+<footer>
+  <p><small>MIT License</small></p>
+</footer>
+
+<!-- 計測：data-event 属性が付いたリンククリックを送信（Plausible/GA4どちらでも動作） -->
+<script>
+(function(){
+  function sendEvent(name, props){
+    // Plausible
+    if (window.plausible) plausible(name, {props: props || {}});
+    // GA4（使う場合のみ。上の gtag スニペットを有効化してください）
+    if (window.gtag) gtag('event', name, props || {});
+  }
+  document.addEventListener('click', function(e){
+    const a = e.target.closest('a[data-event]');
+    if(!a) return;
+    const ev = a.getAttribute('data-event');
+    const props = { loc: a.getAttribute('data-loc') || 'body' };
+    sendEvent(ev, props);
+  }, {capture:true});
+})();
+</script>
+
+<!-- 構造化データ（任意：検索での理解を助けます） -->
+<script type="application/ld+json">
+{
+  "@context":"https://schema.org",
+  "@type":"SoftwareApplication",
+  "name":"汎用注釈ドキュメントメーカー",
+  "applicationCategory":"WebApplication",
+  "operatingSystem":"Any",
+  "description":"画像に番号と説明を付け、単一HTMLで配布・再編集できるスタンドアロンWebツール。",
+  "url":"https://smzttk432.github.io/annotation_editor/",
+  "license":"https://opensource.org/licenses/MIT"
+}
+</script>
+
 </body>
 </html>
